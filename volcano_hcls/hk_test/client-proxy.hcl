@@ -109,7 +109,7 @@ job "client-proxy" {
 
         ENVIRONMENT = "dev"
 
-        REDIS_URL         = "192.168.0.225:6379"
+        REDIS_URL         = "192.168.0.229:6379"
         REDIS_CLUSTER_URL = ""
 
         OTEL_COLLECTOR_GRPC_ENDPOINT = "localhost:4317"

@@ -17,7 +17,7 @@ echo "================================================="
 mkdir -p /mnt/nfs
 # 重试挂载，最多等 60 秒（NFS 服务可能还没就绪）
 for i in $(seq 1 12); do
-  mount 192.168.0.225:/mnt/nfs /mnt/nfs && break
+  mount 192.168.0.229:/mnt/nfs /mnt/nfs && break
   echo "NFS mount failed, retrying in 5s... ($i/12)"
   sleep 5
 done
@@ -35,8 +35,8 @@ echo "================================================="
 sudo mkdir -p /opt/orchestrator/
 cp /mnt/nfs/e2b_val/infrawaves/bins/orchestrator /opt/orchestrator/
 
-sudo mkdir -p /opt/template-manager
-cp /mnt/nfs/e2b_val/infrawaves/bins/template-manager /opt/template-manager/template-manager
+# sudo mkdir -p /opt/template-manager
+# cp /mnt/nfs/e2b_val/infrawaves/bins/template-manager /opt/template-manager/template-manager
 
 sudo mkdir -p /fc-envd
 sudo mkdir -p /fc-versions
@@ -91,8 +91,8 @@ sudo chmod 777 /mnt/snapshot-cache
 sudo mount -t tmpfs -o size=4G tmpfs /mnt/snapshot-cache
 
 #这个值需要根据内存调整。一个大页是2MB，一般按照内存的85%分配吧
-sudo sysctl -w vm.nr_hugepages=200000
-echo "vm.nr_hugepages=200000" | sudo tee -a /etc/sysctl.conf
+sudo sysctl -w vm.nr_hugepages=650000
+echo "vm.nr_hugepages=650000" | sudo tee -a /etc/sysctl.conf
 grep HugePages_Total /proc/meminfo
 
 echo "================================================="

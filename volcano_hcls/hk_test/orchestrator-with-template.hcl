@@ -1,3 +1,24 @@
+variable "consul_token" {
+  type        = string
+  description = "Consul ACL token，部署时注入（勿写入仓库）"
+  default     = ""
+  sensitive   = true
+}
+
+variable "aws_access_key_id" {
+  type        = string
+  description = "对象存储 Access Key ID（火山 TOS）"
+  default     = ""
+  sensitive   = true
+}
+
+variable "aws_secret_access_key" {
+  type        = string
+  description = "对象存储 Secret Access Key（火山 TOS）"
+  default     = ""
+  sensitive   = true
+}
+
 job "template-manager" {
   type        = "system"
   datacenters = ["hk-prod"]
@@ -91,7 +112,7 @@ job "template-manager" {
       env {
         NODE_ID = "${node.unique.name}"
         NODE_IP      = "${attr.unique.network.ip-address}"
-        CONSUL_TOKEN = "3a50c4ff-2059-d455-1e60-2f386651aa2e"
+        CONSUL_TOKEN = var.consul_token
         ENVIRONMENT  = "dev"
 
         # 合并部署：orchestrator 二进制同时提供两个服务
@@ -108,17 +129,18 @@ job "template-manager" {
         BUILD_CACHE_BUCKET_NAME = "e2b-build-hk"
         AWS_ENDPOINT_URL        = "https://tos-s3-cn-hongkong.ivolces.com"
         AWS_REGION              = "cn-hongkong"
-        AWS_ACCESS_KEY_ID       = "REPLACE_WITH_VOLC_AK"
-        AWS_SECRET_ACCESS_KEY   = "REPLACE_WITH_VOLC_SK"
+        AWS_ACCESS_KEY_ID       = var.aws_access_key_id
+        AWS_SECRET_ACCESS_KEY   = var.aws_secret_access_key
         S3_USE_PATH_STYLE = "false"
 
         ALLOW_SANDBOX_INTERNET       = "true"
-        ALLOW_SANDBOX_INTERNAL_CIDRS = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10"
+        # ALLOW_SANDBOX_INTERNAL_CIDRS = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10"
+        ALLOW_SANDBOX_INTERNAL_CIDRS = "10.51.0.0/16,10.128.0.0/16,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10"
 
         SHARED_CHUNK_CACHE_PATH      = ""
-        CLICKHOUSE_CONNECTION_STRING = "clickhouse://default:@192.168.0.225:9000/hk-prod_e2b_clickhouse"
+        CLICKHOUSE_CONNECTION_STRING = "clickhouse://default:@192.168.0.229:9000/hk-prod_e2b_clickhouse"
 
-        REDIS_URL         = "192.168.0.225:6379"
+        REDIS_URL         = "192.168.0.229:6379"
         REDIS_CLUSTER_URL = ""
 
         GRPC_PORT             = "9090"

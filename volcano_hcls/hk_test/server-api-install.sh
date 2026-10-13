@@ -123,6 +123,62 @@ INFRA_DIR="/mnt/nfs/infra"
 HCL_DIR="${INFRA_DIR}/volcano_hcls/hk_test"
 
 echo "================================================="
+echo "Step 3b: Fetching Firecracker sandbox resources"
+echo "================================================="
+# sandbox worker 节点需要 /mnt/nfs 下的 fc-kernels/fc-versions/fc-busybox/fc-envd，
+# 前三者是 e2b 官方公开构建产物（GCS 公共桶，匿名可下，香港直连）；envd 是本地编译产物。
+FC_BUCKET="e2b-prod-public-builds"
+FC_API="https://storage.googleapis.com/storage/v1/b/${FC_BUCKET}/o"
+FC_DL="https://storage.googleapis.com/${FC_BUCKET}"
+
+# 用 GCS JSON API 递归列举并逐个下载某前缀到本地目录（仅用 curl + python3）
+fetch_gcs_prefix() {
+  local prefix="$1" dest="$2" pageToken="" url resp
+  mkdir -p "$dest"
+  while :; do
+    url="${FC_API}?prefix=${prefix}"
+    [ -n "$pageToken" ] && url="${url}&pageToken=${pageToken}"
+    resp="$(curl -s "$url")"
+    echo "$resp" | python3 -c '
+import sys,json
+for it in json.load(sys.stdin).get("items",[]):
+    n=it["name"]
+    if not n.endswith("/"): print(n)
+' | while read -r name; do
+      local rel="${name#${prefix}}" out
+      out="${dest}/${rel}"
+      mkdir -p "$(dirname "$out")"
+      [ -s "$out" ] || curl -sf "${FC_DL}/${name}" -o "$out"
+    done
+    pageToken="$(echo "$resp" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("nextPageToken",""))')"
+    [ -z "$pageToken" ] && break
+  done
+}
+
+if [ -z "$(ls -A /mnt/nfs/fc-kernels 2>/dev/null)" ]; then
+  echo "下载 fc-kernels ..."; fetch_gcs_prefix "kernels/" /mnt/nfs/fc-kernels
+else echo "fc-kernels 已存在，跳过"; fi
+if [ -z "$(ls -A /mnt/nfs/fc-versions 2>/dev/null)" ]; then
+  echo "下载 fc-versions ..."; fetch_gcs_prefix "firecrackers/" /mnt/nfs/fc-versions
+  find /mnt/nfs/fc-versions -name firecracker -exec chmod +x {} \; 2>/dev/null || true
+else echo "fc-versions 已存在，跳过"; fi
+if [ -z "$(ls -A /mnt/nfs/fc-busybox 2>/dev/null)" ]; then
+  echo "下载 fc-busybox ..."; fetch_gcs_prefix "busybox/" /mnt/nfs/fc-busybox
+else echo "fc-busybox 已存在，跳过"; fi
+
+# envd 不在公共桶，用本地编译产物（infra 仓库里 make build 的结果）
+mkdir -p /mnt/nfs/fc-envd
+if [ -z "$(ls -A /mnt/nfs/fc-envd 2>/dev/null)" ]; then
+  if [ -f "${INFRA_DIR}/packages/envd/bin/envd" ]; then
+    cp "${INFRA_DIR}/packages/envd/bin/envd" /mnt/nfs/fc-envd/
+    echo "已复制 envd 到 fc-envd"
+  else
+    echo "警告: 未找到 ${INFRA_DIR}/packages/envd/bin/envd，请先在 infra 里执行 (cd packages/envd && make build) 再手动复制到 /mnt/nfs/fc-envd/"
+  fi
+fi
+echo "fc 资源就绪:"; du -sh /mnt/nfs/fc-kernels /mnt/nfs/fc-versions /mnt/nfs/fc-busybox /mnt/nfs/fc-envd 2>/dev/null || true
+
+echo "================================================="
 echo "Step 4: Installing Nomad"
 echo "================================================="
 # 确保三个组件的离线包就位（本地/NFS 已有则复用，否则官方源下载）
@@ -253,7 +309,7 @@ sleep 2
 mkdir -p /opt/nomad/config /opt/nomad/data /opt/nomad/plugins
 cat > /opt/nomad/config/server.hcl <<EOF
 datacenter = "${DATACENTER}"
-name       = "nomad-server-api"
+name       = "$(hostname)"
 region     = "global"
 data_dir   = "/opt/nomad/data"
 
@@ -383,15 +439,36 @@ echo "Step 10: Deploying ClickHouse"
 echo "================================================="
 # 预拉取镜像，避免 Nomad 调度时超时
 docker pull clickhouse/clickhouse-server:25.4.5.24
-nomad job run "${HCL_DIR}/clickhouse.hcl"
+# 通过 -var 把脚本变量注入 HCL：datacenter 驱动库名/数据中心，node_name 与本机 hostname 对齐
+nomad job run \
+  -var="datacenter=${DATACENTER}" \
+  -var="node_name=$(hostname)" \
+  "${HCL_DIR}/clickhouse.hcl"
 
 echo "================================================="
 echo "Step 11: Running ClickHouse migrations"
 echo "================================================="
 export PATH=/usr/local/go/bin:$PATH
 export GOPROXY=https://goproxy.cn,direct
+
+# 等待 ClickHouse HTTP 就绪（最多 60s）
+echo "等待 ClickHouse 就绪..."
+for i in $(seq 1 60); do
+  if curl -sf "http://${LOCAL_IP}:8123/ping" >/dev/null 2>&1; then
+    echo "ClickHouse 已就绪"
+    break
+  fi
+  sleep 1
+done
+
+# 显式建库：库名带连字符（hk-prod_e2b_clickhouse），容器 entrypoint 的 CLICKHOUSE_DB
+# 不加反引号会建库失败，goose 迁移前必须先手动 CREATE（库名用反引号）。
+CH_DB="${DATACENTER}_e2b_clickhouse"
+curl -sf "http://${LOCAL_IP}:8123/" --data-binary "CREATE DATABASE IF NOT EXISTS \`${CH_DB}\`" \
+  && echo "已确保数据库 ${CH_DB} 存在" || echo "警告: 建库请求失败"
+
 cd "${INFRA_DIR}/packages/clickhouse"
-GOOSE_DBSTRING="clickhouse://default:@${LOCAL_IP}:9000/${DATACENTER}_e2b_clickhouse" \
+GOOSE_DBSTRING="clickhouse://default:@${LOCAL_IP}:9000/${CH_DB}" \
   go tool goose -table "_migrations" -dir "migrations" clickhouse up
 
 echo "================================================="
@@ -445,7 +522,6 @@ docker exec redis redis-cli ping 2>/dev/null || echo "警告: redis 未响应 PI
 echo "================================================="
 echo "Installation complete!"
 echo "================================================="
-echo
 echo "请保存以下 Token："
 echo "  CONSUL_TOKEN: ${CONSUL_HTTP_TOKEN}"
 echo "  NOMAD_TOKEN:  ${NOMAD_TOKEN}"
@@ -466,15 +542,8 @@ set +u
 # shellcheck disable=SC1090
 . /root/.bashrc 2>/dev/null || true
 set -u
-
-echo
 echo "================================================="
 echo "✅ server-api 节点部署完成！"
 echo "================================================="
 echo "  Consul   : $(systemctl is-active consul 2>/dev/null)  (UI: http://${LOCAL_IP}:8500/ui)"
 echo "  Nomad    : $(supervisorctl status nomad 2>/dev/null | awk '{print $2}')  (UI: http://${LOCAL_IP}:4646/ui)"
-echo "  Postgres : postgresql://postgres:postgres@${LOCAL_IP}:5432/postgres?sslmode=disable"
-echo "  Redis    : ${LOCAL_IP}:6379 (无密码)"
-echo
-echo "================================================="
-

@@ -1,7 +1,42 @@
+variable "datacenter" {
+  type        = string
+  description = "Nomad 数据中心名称，对应安装脚本中的 DATACENTER"
+  default     = "hk-prod"
+}
+
+variable "node_pool" {
+  type        = string
+  description = "调度到的 node pool，对应脚本 client.node_pool"
+  default     = "api"
+}
+
+variable "node_role" {
+  type        = string
+  description = "节点 meta.role 约束值"
+  default     = "api"
+}
+
+variable "node_name" {
+  type        = string
+  description = "固定调度的节点名（node.unique.name）；若与 hostname 不一致需覆盖"
+  default     = "nomad-server-api"
+}
+
+variable "clickhouse_image" {
+  type        = string
+  description = "ClickHouse 镜像（与脚本 docker pull 的 tag 保持一致）"
+  default     = "clickhouse/clickhouse-server:25.4.5.24"
+}
+
+locals {
+  # 库名带连字符，与脚本中 CH_DB="${DATACENTER}_e2b_clickhouse" 保持一致
+  clickhouse_db = "${var.datacenter}_e2b_clickhouse"
+}
+
 job "clickhouse" {
   type        = "service"
-  datacenters = ["hk-prod"]
-  node_pool   = "api"
+  datacenters = [var.datacenter]
+  node_pool   = var.node_pool
   priority    = 75
 
   group "server-1" {
@@ -16,12 +51,12 @@ job "clickhouse" {
 
     constraint {
       attribute = "${meta.role}"
-      value     = "api"
+      value     = var.node_role
     }
 
     constraint {
       attribute = "${node.unique.name}"
-      value     = "nomad-server-api"
+      value     = var.node_name
     }
 
     network {
@@ -64,11 +99,11 @@ job "clickhouse" {
       env {
         CLICKHOUSE_USER     = "default"
         CLICKHOUSE_PASSWORD = ""
-        CLICKHOUSE_DB       = "hk-prod_e2b_clickhouse"
+        CLICKHOUSE_DB       = local.clickhouse_db
       }
 
       config {
-        image        = "clickhouse/clickhouse-server:25.4.5.24"
+        image        = var.clickhouse_image
         ports        = ["clickhouse-server", "clickhouse-http", "clickhouse-metrics"]
         network_mode = "host"
 

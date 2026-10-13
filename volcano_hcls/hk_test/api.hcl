@@ -1,3 +1,38 @@
+variable "nomad_token" {
+  type        = string
+  description = "Nomad ACL token，部署时注入（勿写入仓库）"
+  default     = ""
+  sensitive   = true
+}
+
+variable "auth_hmac_secret" {
+  type        = string
+  description = "旧版 legacy HMAC 签名密钥"
+  default     = ""
+  sensitive   = true
+}
+
+variable "aws_access_key_id" {
+  type        = string
+  description = "对象存储 Access Key ID（火山 TOS）"
+  default     = ""
+  sensitive   = true
+}
+
+variable "aws_secret_access_key" {
+  type        = string
+  description = "对象存储 Secret Access Key（火山 TOS）"
+  default     = ""
+  sensitive   = true
+}
+
+variable "volume_token_signing_key" {
+  type        = string
+  description = "持久卷 token 签名私钥（ECDSA）"
+  default     = ""
+  sensitive   = true
+}
+
 job "api" {
   type        = "service"
   datacenters = ["hk-prod"]
@@ -144,7 +179,7 @@ job "api" {
         ENVIRONMENT = "dev"
         DOMAIN_NAME = ""
         NODE_ID     = "${node.unique.id}"
-        NOMAD_TOKEN = "d9c19c47-47f9-420a-d9cb-0c604d6897c0"
+        NOMAD_TOKEN = var.nomad_token
         E2B_DEBUG   = "true"
 
         ORCHESTRATOR_PORT              = "9090"
@@ -154,19 +189,19 @@ job "api" {
         SANDBOX_ACCESS_TOKEN_HASH_SEED = "dev-random-seed-change-in-production"
 
 
-        POSTGRES_CONNECTION_STRING = "postgresql://postgres:postgres@192.168.0.225:5432/postgres"
-        AUTH_PROVIDER_CONFIG       = "{\"jwt\":[{\"issuer\":{\"url\":\"https://auth.xiaobei.top\",\"audiences\":[\"e2b-hk-prod\"]}}],\"legacy\":{\"hmac\":{\"secrets\":[\"kGkb4J9fEGoc5Zx7b//RmezKAVUoFfEjeBW0t7wj3zbnXhpv/9i0uY59prFUdF6uPl+MHbG+mysHyIZ70DGy+g==\"]}}}"
+        POSTGRES_CONNECTION_STRING = "postgresql://postgres:postgres@192.168.0.229:5432/postgres?sslmode=disable"
+        AUTH_PROVIDER_CONFIG       = "{\"jwt\":[{\"issuer\":{\"url\":\"https://auth.xiaobei.top\",\"audiences\":[\"e2b-hk-prod\"]}}],\"legacy\":{\"hmac\":{\"secrets\":[\"${var.auth_hmac_secret}\"]}}}"
 
 
-        CLICKHOUSE_CONNECTION_STRING = "clickhouse://default:@192.168.0.225:9000/hk-prod_e2b_clickhouse"
+        CLICKHOUSE_CONNECTION_STRING = "clickhouse://default:@192.168.0.229:9000/hk-prod_e2b_clickhouse"
 
-        REDIS_URL         = "192.168.0.225:6379"
+        REDIS_URL         = "192.168.0.229:6379"
         REDIS_CLUSTER_URL = ""
 
         POSTHOG_API_KEY               = ""
         ANALYTICS_COLLECTOR_HOST      = ""
         ANALYTICS_COLLECTOR_API_TOKEN = ""
-        LOGS_COLLECTOR_ADDRESS        = "http://localhost:19095"
+        LOGS_COLLECTOR_ADDRESS        = ""
         OTEL_COLLECTOR_GRPC_ENDPOINT  = "localhost:4317"
         LOKI_URL = "http://localhost:3100"
 
@@ -183,15 +218,16 @@ job "api" {
         STORAGE_PROVIDER      = "AWSBucket"
         AWS_ENDPOINT_URL      = "https://tos-s3-cn-hongkong.ivolces.com"
         AWS_REGION            = "cn-hongkong"
-        AWS_ACCESS_KEY_ID     = "REPLACE_WITH_VOLC_AK"
-        AWS_SECRET_ACCESS_KEY = "REPLACE_WITH_VOLC_SK"
+        AWS_ACCESS_KEY_ID     = var.aws_access_key_id
+        AWS_SECRET_ACCESS_KEY = var.aws_secret_access_key
+        S3_USE_PATH_STYLE = "false"
 
         VOLUME_TOKEN_ISSUER           = "local.e2b.dev"
         VOLUME_TOKEN_SIGNING_METHOD   = "ES256"
-        VOLUME_TOKEN_SIGNING_KEY      = "ECDSA:LS0tLS1CRUdJTiBFQyBQUklWQVRFIEtFWS0tLS0tCk1IY0NBUUVFSUFna0FCZ000a0lIa0VPVWdTNTVZeldVTjRkV3k0WjY4R2c2TUpUTGFabkRvQW9HQ0NxR1NNNDkKQXdFSG9VUURRZ0FFbFFnQ3RnWnkrb3RoUDA5bk4yUWdVNjB6ekxNaW9qQXJHM21KZzlYSXJhbERvU3gyMW1tRApQNDBpNENtcXRPQUdIMjlYR2VNUldmdngrK1FOTmlybUJBPT0KLS0tLS1FTkQgRUMgUFJJVkFURSBLRVktLS0tLQo="
+        VOLUME_TOKEN_SIGNING_KEY      = var.volume_token_signing_key
         VOLUME_TOKEN_SIGNING_KEY_NAME = "local-dev-2026-03-20"
 
-        DEFAULT_PERSISTENT_VOLUME_TYPE = "local" # "local、vepfs"
+        DEFAULT_PERSISTENT_VOLUME_TYPE = "vepfs" # "local、vepfs"
 
         CLIENT_PROXY_OIDC_ISSUER_URL = ""
       }
@@ -209,7 +245,7 @@ job "api" {
       driver = "docker"
 
       env {
-        POSTGRES_CONNECTION_STRING = "postgresql://postgres:postgres@192.168.0.225:5432/postgres"
+        POSTGRES_CONNECTION_STRING = "postgresql://postgres:postgres@192.168.0.229:5432/postgres?sslmode=disable"
       }
 
       config {

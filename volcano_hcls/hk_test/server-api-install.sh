@@ -114,13 +114,32 @@ fi
 systemctl enable --now nfs-server
 exportfs -ra
 echo "当前 NFS 导出:"; exportfs -v
-
+# ------------------------------------------------------------------------------------------------
 cd /mnt/nfs
 git clone https://github.com/agiping/e2b_infrawaves
 mv e2b_infrawaves e2b_val
-git clone https://github.com/orion-gmx/infra
+
 INFRA_DIR="/mnt/nfs/infra"
 HCL_DIR="${INFRA_DIR}/volcano_hcls/hk_test"
+# infra 仓库（幂等：已存在则更新，不存在才 clone），统一使用 hk 分支代码
+if [ -d "${INFRA_DIR}/.git" ]; then
+  echo "infra already cloned, fetching latest"
+  git -C "${INFRA_DIR}" fetch origin
+else
+  git clone https://github.com/orion-gmx/infra "${INFRA_DIR}"
+fi
+git -C "${INFRA_DIR}" checkout hk
+git -C "${INFRA_DIR}" pull --ff-only origin hk
+
+# e2b 项目源码（幂等：已存在则更新，不存在才 clone）
+if [ -d /mnt/nfs/VenusBox/.git ]; then
+  echo "VenusBox already cloned, fetching latest"
+  git -C /mnt/nfs/VenusBox fetch origin
+else
+  git clone https://github.com/Infrawaves/VenusBox.git /mnt/nfs/VenusBox
+fi
+git -C /mnt/nfs/VenusBox checkout hk-2026.29-export-tpl
+# ------------------------------------------------------------------------------------------------
 
 echo "================================================="
 echo "Step 3b: Fetching Firecracker sandbox resources"
@@ -522,6 +541,7 @@ docker exec redis redis-cli ping 2>/dev/null || echo "警告: redis 未响应 PI
 echo "================================================="
 echo "Installation complete!"
 echo "================================================="
+echo
 echo "请保存以下 Token："
 echo "  CONSUL_TOKEN: ${CONSUL_HTTP_TOKEN}"
 echo "  NOMAD_TOKEN:  ${NOMAD_TOKEN}"
@@ -537,13 +557,20 @@ persist_bashrc_var() {
 }
 persist_bashrc_var NOMAD_TOKEN "${NOMAD_TOKEN:-}"
 persist_bashrc_var CONSUL_HTTP_TOKEN "${CONSUL_HTTP_TOKEN:-}"
+persist_bashrc_var GOSSIP_KEY "${GOSSIP_KEY:-}"
 
 set +u
 # shellcheck disable=SC1090
 . /root/.bashrc 2>/dev/null || true
 set -u
+
+echo
 echo "================================================="
 echo "✅ server-api 节点部署完成！"
 echo "================================================="
 echo "  Consul   : $(systemctl is-active consul 2>/dev/null)  (UI: http://${LOCAL_IP}:8500/ui)"
 echo "  Nomad    : $(supervisorctl status nomad 2>/dev/null | awk '{print $2}')  (UI: http://${LOCAL_IP}:4646/ui)"
+echo "  Postgres : postgresql://postgres:postgres@${LOCAL_IP}:5432/postgres?sslmode=disable"
+echo "  Redis    : ${LOCAL_IP}:6379 (无密码)"
+echo
+echo "================================================="
